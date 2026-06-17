@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QFileDialog, QTextEdit, QFrame, QMessageBox
+    QFileDialog, QTextEdit, QFrame, QMessageBox, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -17,6 +17,7 @@ from extractors.image_parser import extract_amount_from_image
 class OcrSignals(QObject):
     """信号中转：后台线程通过此对象发送信号到主线程"""
     amount_found = pyqtSignal(str)
+    no_amount_found = pyqtSignal()
     error_occurred = pyqtSignal(str)
     finished = pyqtSignal()
 
@@ -27,6 +28,8 @@ def _run_ocr_in_thread(img_path, signals):
         amount = extract_amount_from_image(img_path)
         if amount:
             signals.amount_found.emit(amount)
+        else:
+            signals.no_amount_found.emit()
         signals.finished.emit()
     except Exception as e:
         signals.error_occurred.emit(str(e))
@@ -154,6 +157,12 @@ class MainWindow(QWidget):
         
         main_layout.addLayout(folder_layout)
 
+        # 金额核对开关
+        self.ocr_checkbox = QCheckBox("金额核对（OCR）")
+        self.ocr_checkbox.setChecked(False)
+        self.ocr_checkbox.setToolTip("开启后，拖入截图将自动识别实付款金额并与发票比对")
+        main_layout.addWidget(self.ocr_checkbox)
+
         # 开始按钮
         self.process_btn = QPushButton("开始处理")
         self.process_btn.setMinimumHeight(40)
@@ -220,18 +229,24 @@ class MainWindow(QWidget):
             self.pdf_zone.label.setText(f"{self.pdf_zone.title_text}\n\n[解析失败]\n{os.path.basename(pdf_path)}")
 
     def on_img_dropped(self, img_path):
-        """图片拖入后：显示文件名，并启动后台OCR预览"""
+        """图片拖入后：显示文件名，若OCR开关开启则启动后台预览"""
         filename = os.path.basename(img_path)
-        self.img_zone.label.setText(
-            f"{self.img_zone.title_text}\n\n已选择:\n{filename}\n\n正在识别金额..."
-        )
-        self.append_log(f"已拖入截图: {filename}，正在后台识别...")
-        # 启动后台线程识别金额（用 threading.Thread，简单可靠）
-        self.img_signals = OcrSignals()
-        self.img_signals.amount_found.connect(self.on_img_preview_amount)
-        self.img_signals.finished.connect(lambda: None)  # 预览完成无需额外操作
-        t = threading.Thread(target=_run_ocr_in_thread, args=(img_path, self.img_signals), daemon=True)
-        t.start()
+        if self.ocr_checkbox.isChecked():
+            self.img_zone.label.setText(
+                f"{self.img_zone.title_text}\n\n已选择:\n{filename}\n\n正在识别金额..."
+            )
+            self.append_log(f"已拖入截图: {filename}，正在后台识别...")
+            self.img_signals = OcrSignals()
+            self.img_signals.amount_found.connect(self.on_img_preview_amount)
+            self.img_signals.no_amount_found.connect(self.on_img_preview_no_amount)
+            self.img_signals.finished.connect(lambda: None)
+            t = threading.Thread(target=_run_ocr_in_thread, args=(img_path, self.img_signals), daemon=True)
+            t.start()
+        else:
+            self.img_zone.label.setText(
+                f"{self.img_zone.title_text}\n\n已选择:\n{filename}"
+            )
+            self.append_log(f"已拖入截图: {filename}（OCR已关闭）")
 
     def start_processing(self):
         pdf_path = self.pdf_zone.file_path
@@ -248,13 +263,17 @@ class MainWindow(QWidget):
         self.process_btn.setEnabled(False)
         self.append_log("开始处理...")
         
-        # 如果有图片，先在后台启动图片OCR线程
+        # 如果有图片，且OCR开关已开，则进行后台识别
         if img_path:
-            if hasattr(self, 'preview_amount') and self.preview_amount:
+            if not self.ocr_checkbox.isChecked():
+                # OCR 关闭，直接执行主流程
+                self.append_log("OCR已关闭，跳过金额核对。")
+                self.execute_main_process(pdf_path, img_path)
+            elif hasattr(self, 'preview_amount') and self.preview_amount:
                 # 拖入时已识别过，直接复用
                 self.append_log(f"复用预览金额: ￥{self.preview_amount}")
                 self.execute_main_process(pdf_path, img_path, self.preview_amount)
-                self.preview_amount = None  # 用完清掉
+                self.preview_amount = None
             else:
                 self.append_log("正在后台处理订单截图...")
                 self.start_image_ocr(img_path)
@@ -266,6 +285,7 @@ class MainWindow(QWidget):
         """启动后台线程处理图片OCR"""
         self.ocr_signals = OcrSignals()
         self.ocr_signals.amount_found.connect(self.on_amount_found)
+        self.ocr_signals.no_amount_found.connect(self.on_process_no_amount)
         self.ocr_signals.finished.connect(self.on_image_ocr_finished)
         self.ocr_signals.error_occurred.connect(self.on_image_ocr_error)
         
@@ -281,6 +301,10 @@ class MainWindow(QWidget):
         """后台线程：找到金额"""
         self.extracted_amount = amount
         self.append_log(f"识别到截图实付款金额: ￥{amount}")
+
+    def on_process_no_amount(self):
+        """后台线程：未找到金额（处理流程）"""
+        self.append_log("截图金额识别失败：未找到实付款金额")
     
     def on_img_preview_amount(self, amount):
         """图片拖入后的预览OCR回传"""
@@ -292,8 +316,19 @@ class MainWindow(QWidget):
             f"实付款: ￥{amount}"
         )
         self.append_log(f"截图金额识别完成: ￥{amount}")
-        # 保存供 start_processing 复用
         self.preview_amount = amount
+
+    def on_img_preview_no_amount(self):
+        """图片拖入后的预览OCR回传：识别失败"""
+        filename = os.path.basename(self.img_zone.file_path) if self.img_zone.file_path else ""
+        self.img_zone.label.setText(
+            f"{self.img_zone.title_text}\n\n"
+            f"文件: {filename}\n"
+            f"----------------\n"
+            f"[未识别到金额]"
+        )
+        self.append_log("截图金额识别失败：未找到实付款金额")
+        self.preview_amount = None
     
     def on_image_ocr_error(self, error_msg):
         """后台线程：出错"""

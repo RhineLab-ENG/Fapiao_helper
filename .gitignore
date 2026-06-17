@@ -1,0 +1,31 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build outputs
+build/
+dist/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Sample test data (real invoices, don't leak)
+发票示例.pdf
+订单示例.jpg
+
+# Generated Excel output
+发票汇总.xlsx
