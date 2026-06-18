@@ -4,12 +4,13 @@ import shutil
 def format_filename(invoice_data, file_type):
     """
     格式化新文件名
-    :param invoice_data: dict containing date, total_amount, item_name, invoice_number
+    :param invoice_data: dict containing date, total_amount(分), item_name, invoice_number
     :param file_type: '发票' or '订单'
     :return: 格式化后的文件名，不包含扩展名
     """
     date = invoice_data.get('date', '未知日期')
-    amount = invoice_data.get('total_amount', '0.00')
+    amount_cents = invoice_data.get('total_amount', 0)
+    amount = f"{amount_cents / 100:.2f}"
     item_name = invoice_data.get('item_name', '未知品名')
     invoice_number = invoice_data.get('invoice_number', '未知号码')
 

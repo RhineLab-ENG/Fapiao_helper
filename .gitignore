@@ -12,6 +12,8 @@ __pycache__/
 # PyInstaller build outputs
 build/
 dist/
+*.exe
+*.spec
 
 # IDE / Editor
 .vscode/
@@ -23,9 +25,18 @@ dist/
 Thumbs.db
 .DS_Store
 
-# Sample test data (real invoices, don't leak)
-发票示例.pdf
-订单示例.jpg
+# PDF / test data (don't leak real invoices)
+*.pdf
+
+# Image test data
+*.jpg
+*.jpeg
+*.png
+*.bmp
 
 # Generated Excel output
-发票汇总.xlsx
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+*.bmp

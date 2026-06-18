@@ -17,7 +17,9 @@ def parse_invoice(pdf_path):
         'invoice_number': '',
         'date': '',
         'item_name': '',
-        'total_amount': ''
+        'total_amount': 0,
+        'seller_name': '',
+        'buyer_name': ''
     }
 
     try:
@@ -56,7 +58,9 @@ def parse_invoice(pdf_path):
                 amount_match = re.search(r"[价计（(]\s*小写\s*[)）]?\s*([0-9.,]+)", text)
             
             if amount_match:
-                result['total_amount'] = amount_match.group(1).replace(',', '')
+                yuan_str = amount_match.group(1).replace(',', '')
+                # 转为整数「分」存储，避免浮点精度问题
+                result['total_amount'] = int(round(float(yuan_str) * 100))
 
             # 4. 第一项品名 (First item name)
             # 通过全局文本直接使用正则匹配（能兼顾表格抽取错位的情况）
@@ -71,6 +75,13 @@ def parse_invoice(pdf_path):
                 if name_match:
                     name_found = name_match.group(0).strip()
                     result['item_name'] = name_found[:15]
+
+            # 5. 销售方 / 购买方名称
+            # PDF 双栏布局下「名称：」交错在同一行，购买方在前、销售方在后
+            all_names = re.findall(r"名称[:：]\s*([^\n]+)", text)
+            if len(all_names) >= 2:
+                result['buyer_name'] = all_names[0].strip()
+                result['seller_name'] = all_names[-1].strip()
 
     except Exception as e:
         print(f"Error parsing PDF {pdf_path}: {e}")
